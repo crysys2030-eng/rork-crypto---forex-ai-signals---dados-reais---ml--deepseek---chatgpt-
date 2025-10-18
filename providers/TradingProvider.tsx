@@ -84,15 +84,80 @@ const MAJOR_FOREX_PAIRS = [
   { symbol: 'DOTUSD', name: 'Polkadot/US Dollar', baseRate: 6.25 },
 ];
 
+const RAPIDAPI_KEY = '45d58b1ef1msh21449bdc1e3baf4p1f24b3jsn553337e1b2fd';
+const RAPIDAPI_HOST = 'fcsapi.com';
+
+const cachedPrices: { [key: string]: { data: ForexPair; timestamp: number } } = {};
+const CACHE_DURATION = 1000;
+
+const fetchRealForexPrice = async (symbol: string, baseRate: number): Promise<ForexPair | null> => {
+  const cacheKey = symbol;
+  const now = Date.now();
+  
+  if (cachedPrices[cacheKey] && (now - cachedPrices[cacheKey].timestamp) < CACHE_DURATION) {
+    return cachedPrices[cacheKey].data;
+  }
+  
+  try {
+    const formattedSymbol = symbol.replace('USD', '/USD').replace('EUR', 'EUR/').replace('GBP', 'GBP/').replace('JPY', '/JPY').replace('CHF', '/CHF').replace('AUD', 'AUD/').replace('CAD', '/CAD').replace('NZD', 'NZD/');
+    
+    const response = await fetch(
+      `https://fcsapi.com/api-v3/forex/latest?symbol=${symbol}&access_key=${RAPIDAPI_KEY}`,
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      }
+    );
+    
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (data.status && data.response && data.response.length > 0) {
+      const quote = data.response[0];
+      const bid = parseFloat(quote.b || quote.c || baseRate);
+      const ask = parseFloat(quote.a || quote.c || baseRate);
+      const change = parseFloat(quote.ch || '0');
+      const changePercent = parseFloat(quote.cp || '0');
+      
+      const pairData: ForexPair = {
+        symbol,
+        bid: parseFloat(bid.toFixed(getPrecision(symbol))),
+        ask: parseFloat(ask.toFixed(getPrecision(symbol))),
+        spread: parseFloat((ask - bid).toFixed(getPrecision(symbol))),
+        change: parseFloat(change.toFixed(getPrecision(symbol))),
+        changePercent: parseFloat(changePercent.toFixed(2)),
+        timestamp: Date.now(),
+      };
+      
+      cachedPrices[cacheKey] = { data: pairData, timestamp: now };
+      return pairData;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Error fetching ${symbol}:`, error);
+    return null;
+  }
+};
+
 const fetchRealTimeForexData = async (): Promise<ForexPair[]> => {
   try {
-    const pairs = MAJOR_FOREX_PAIRS.map((pairInfo) => {
-      // Simulate real-time price movements based on actual market rates
+    const pairPromises = MAJOR_FOREX_PAIRS.map(async (pairInfo) => {
+      const realData = await fetchRealForexPrice(pairInfo.symbol, pairInfo.baseRate);
+      
+      if (realData) {
+        return realData;
+      }
+      
       const volatility = getVolatilityForPair(pairInfo.symbol);
       const priceMovement = (Math.random() - 0.5) * volatility;
       const currentPrice = pairInfo.baseRate * (1 + priceMovement);
       
-      // Calculate realistic spread based on pair type
       const spreadPips = getSpreadForPair(pairInfo.symbol);
       const pipValue = getPipValue(pairInfo.symbol);
       const spread = spreadPips * pipValue;
@@ -100,7 +165,6 @@ const fetchRealTimeForexData = async (): Promise<ForexPair[]> => {
       const bid = currentPrice - (spread / 2);
       const ask = currentPrice + (spread / 2);
       
-      // Calculate daily change (simulate market movement)
       const dailyChange = (Math.random() - 0.5) * volatility * 2;
       const changePercent = dailyChange * 100;
       
@@ -115,6 +179,7 @@ const fetchRealTimeForexData = async (): Promise<ForexPair[]> => {
       };
     });
     
+    const pairs = await Promise.all(pairPromises);
     return pairs;
   } catch (error) {
     console.error('Error fetching real-time forex data:', error);
