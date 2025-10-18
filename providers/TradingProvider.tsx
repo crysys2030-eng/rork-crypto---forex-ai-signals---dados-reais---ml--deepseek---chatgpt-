@@ -373,15 +373,11 @@ const fetchHistoricalData = async (symbol: string): Promise<number[]> => {
 };
 
 const signalSchema = z.object({
-  type: z.string().transform(val => val.toUpperCase()).refine(val => val === 'BUY' || val === 'SELL', {
-    message: 'Type must be BUY or SELL'
-  }),
+  type: z.enum(['BUY', 'SELL']),
   confidence: z.number().min(0).max(100),
   stopLossMultiplier: z.number().min(1).max(3),
   takeProfitMultiplier: z.number().min(1.5).max(5),
-  sentiment: z.string().transform(val => val.toUpperCase()).refine(val => ['BULLISH', 'BEARISH', 'NEUTRAL'].includes(val), {
-    message: 'Sentiment must be BULLISH, BEARISH, or NEUTRAL'
-  }),
+  sentiment: z.enum(['BULLISH', 'BEARISH', 'NEUTRAL']),
   keyFactors: z.array(z.string()).min(1).max(5),
 });
 
