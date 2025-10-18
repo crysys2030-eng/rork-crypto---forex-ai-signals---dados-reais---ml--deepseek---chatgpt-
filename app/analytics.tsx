@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTrading } from '@/providers/TradingProvider';
-import { LineChart } from 'react-native-chart-kit';
 import { Activity, TrendingUp, TrendingDown, Target, DollarSign, BarChart3 } from 'lucide-react-native';
 
 export default function AnalyticsScreen() {
@@ -43,33 +42,10 @@ export default function AnalyticsScreen() {
     };
   }, [signals, positions, pairs]);
 
-  const chartData = {
-    labels: ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'],
-    datasets: [
-      {
-        data: [20, 45, 28, 80, 99, 43],
-        color: (opacity = 1) => `rgba(16, 185, 129, ${opacity})`,
-        strokeWidth: 2,
-      },
-    ],
-  };
-
-  const chartConfig = {
-    backgroundColor: '#1F2937',
-    backgroundGradientFrom: '#1F2937',
-    backgroundGradientTo: '#374151',
-    decimalPlaces: 0,
-    color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
-    labelColor: (opacity = 1) => `rgba(156, 163, 175, ${opacity})`,
-    style: {
-      borderRadius: 16,
-    },
-    propsForDots: {
-      r: '6',
-      strokeWidth: '2',
-      stroke: '#10B981',
-    },
-  };
+  const chartData = [20, 45, 28, 80, 99, 43];
+  const chartLabels = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun'];
+  const maxValue = Math.max(...chartData);
+  const minValue = Math.min(...chartData);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -141,14 +117,24 @@ export default function AnalyticsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Gráfico de Performance</Text>
           <View style={styles.chartContainer}>
-            <LineChart
-              data={chartData}
-              width={320}
-              height={220}
-              chartConfig={chartConfig}
-              bezier
-              style={styles.chart}
-            />
+            <View style={styles.chartWrapper}>
+              {chartData.map((value, index) => {
+                const heightPercent = ((value - minValue) / (maxValue - minValue)) * 100;
+                return (
+                  <View key={index} style={styles.chartBarContainer}>
+                    <View style={styles.chartBarWrapper}>
+                      <View
+                        style={[
+                          styles.chartBar,
+                          { height: `${heightPercent}%` },
+                        ]}
+                      />
+                    </View>
+                    <Text style={styles.chartLabel}>{chartLabels[index]}</Text>
+                  </View>
+                );
+              })}
+            </View>
           </View>
         </View>
 
@@ -307,16 +293,42 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   chartContainer: {
-    alignItems: 'center',
     backgroundColor: '#1F2937',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: '#374151',
   },
-  chart: {
-    marginVertical: 8,
-    borderRadius: 16,
+  chartWrapper: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-around',
+    height: 200,
+    paddingVertical: 16,
+  },
+  chartBarContainer: {
+    flex: 1,
+    alignItems: 'center',
+    height: '100%',
+    paddingHorizontal: 4,
+  },
+  chartBarWrapper: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  chartBar: {
+    width: '80%',
+    backgroundColor: '#10B981',
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    minHeight: 8,
+  },
+  chartLabel: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 8,
   },
   pairItem: {
     flexDirection: 'row',
