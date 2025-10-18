@@ -100,11 +100,8 @@ const MAJOR_FOREX_PAIRS = [
   { symbol: 'DOTUSD', name: 'Polkadot/US Dollar', baseRate: 6.25 },
 ];
 
-const RAPIDAPI_KEY = '45d58b1ef1msh21449bdc1e3baf4p1f24b3jsn553337e1b2fd';
-const RAPIDAPI_HOST = 'twelve-data1.p.rapidapi.com';
-
 const cachedPrices: { [key: string]: { data: ForexPair; timestamp: number } } = {};
-const CACHE_DURATION = 1000;
+const CACHE_DURATION = 50000;
 
 const fetchRealForexPrice = async (symbol: string, baseRate: number): Promise<ForexPair | null> => {
   const cacheKey = symbol;
@@ -115,46 +112,25 @@ const fetchRealForexPrice = async (symbol: string, baseRate: number): Promise<Fo
   }
   
   try {
-    let formattedSymbol = symbol;
+    let apiUrl = '';
     
-    if (symbol === 'EURUSD') formattedSymbol = 'EUR/USD';
-    else if (symbol === 'GBPUSD') formattedSymbol = 'GBP/USD';
-    else if (symbol === 'USDJPY') formattedSymbol = 'USD/JPY';
-    else if (symbol === 'USDCHF') formattedSymbol = 'USD/CHF';
-    else if (symbol === 'AUDUSD') formattedSymbol = 'AUD/USD';
-    else if (symbol === 'USDCAD') formattedSymbol = 'USD/CAD';
-    else if (symbol === 'NZDUSD') formattedSymbol = 'NZD/USD';
-    else if (symbol === 'EURJPY') formattedSymbol = 'EUR/JPY';
-    else if (symbol === 'GBPJPY') formattedSymbol = 'GBP/JPY';
-    else if (symbol === 'EURGBP') formattedSymbol = 'EUR/GBP';
-    else if (symbol === 'EURAUD') formattedSymbol = 'EUR/AUD';
-    else if (symbol === 'EURCHF') formattedSymbol = 'EUR/CHF';
-    else if (symbol === 'GBPAUD') formattedSymbol = 'GBP/AUD';
-    else if (symbol === 'GBPCHF') formattedSymbol = 'GBP/CHF';
-    else if (symbol === 'AUDCAD') formattedSymbol = 'AUD/CAD';
-    else if (symbol === 'AUDJPY') formattedSymbol = 'AUD/JPY';
-    else if (symbol === 'CADJPY') formattedSymbol = 'CAD/JPY';
-    else if (symbol === 'CHFJPY') formattedSymbol = 'CHF/JPY';
-    else if (symbol === 'NZDJPY') formattedSymbol = 'NZD/JPY';
-    else if (symbol === 'XAUUSD') formattedSymbol = 'XAU/USD';
-    else if (symbol === 'XAGUSD') formattedSymbol = 'XAG/USD';
-    else if (symbol === 'BTCUSD') formattedSymbol = 'BTC/USD';
-    else if (symbol === 'ETHUSD') formattedSymbol = 'ETH/USD';
-    else if (symbol === 'ADAUSD') formattedSymbol = 'ADA/USD';
-    else if (symbol === 'DOTUSD') formattedSymbol = 'DOT/USD';
-    else if (symbol === 'USOIL') formattedSymbol = 'WTI/USD';
-    else if (symbol === 'UKOIL') formattedSymbol = 'BRENT/USD';
+    if (symbol.startsWith('BTC') || symbol.startsWith('ETH') || symbol === 'ADAUSD' || symbol === 'DOTUSD') {
+      const cryptoSymbol = symbol.replace('USD', '').toLowerCase();
+      apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${cryptoSymbol === 'btc' ? 'bitcoin' : cryptoSymbol === 'eth' ? 'ethereum' : cryptoSymbol === 'ada' ? 'cardano' : 'polkadot'}&vs_currencies=usd&include_24hr_change=true`;
+    } else if (symbol.startsWith('XAU') || symbol.startsWith('XAG')) {
+      apiUrl = `https://api.metals.live/v1/spot/${symbol === 'XAUUSD' ? 'gold' : 'silver'}`;
+    } else {
+      const base = symbol.substring(0, 3);
+      const quote = symbol.substring(3, 6);
+      apiUrl = `https://api.exchangerate-api.com/v4/latest/${base}`;
+    }
     
-    const response = await fetch(
-      `https://twelve-data1.p.rapidapi.com/price?symbol=${encodeURIComponent(formattedSymbol)}&format=json&outputsize=30`,
-      {
-        method: 'GET',
-        headers: {
-          'x-rapidapi-key': RAPIDAPI_KEY,
-          'x-rapidapi-host': RAPIDAPI_HOST
-        },
-      }
-    );
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+      },
+    });
     
     if (!response.ok) {
       console.log(`API error ${response.status} for ${symbol}`);
@@ -162,9 +138,29 @@ const fetchRealForexPrice = async (symbol: string, baseRate: number): Promise<Fo
     }
     
     const data = await response.json();
+    let price = 0;
+    let changePercent = 0;
     
-    if (data && data.price) {
-      const price = parseFloat(data.price);
+    if (symbol.startsWith('BTC') || symbol.startsWith('ETH') || symbol === 'ADAUSD' || symbol === 'DOTUSD') {
+      const cryptoKey = symbol === 'BTCUSD' ? 'bitcoin' : symbol === 'ETHUSD' ? 'ethereum' : symbol === 'ADAUSD' ? 'cardano' : 'polkadot';
+      if (data[cryptoKey]) {
+        price = data[cryptoKey].usd;
+        changePercent = data[cryptoKey].usd_24h_change || 0;
+      }
+    } else if (symbol.startsWith('XAU') || symbol.startsWith('XAG')) {
+      if (data && data.length > 0) {
+        price = data[0].price;
+        changePercent = ((price - data[0].open) / data[0].open) * 100;
+      }
+    } else {
+      const quote = symbol.substring(3, 6);
+      if (data.rates && data.rates[quote]) {
+        price = data.rates[quote];
+        changePercent = (Math.random() - 0.5) * getVolatilityForPair(symbol) * 100;
+      }
+    }
+    
+    if (price > 0) {
       const spreadPips = getSpreadForPair(symbol);
       const pipValue = getPipValue(symbol);
       const spread = spreadPips * pipValue;
@@ -172,15 +168,12 @@ const fetchRealForexPrice = async (symbol: string, baseRate: number): Promise<Fo
       const bid = price - (spread / 2);
       const ask = price + (spread / 2);
       
-      const dailyChange = (Math.random() - 0.5) * getVolatilityForPair(symbol) * 2;
-      const changePercent = dailyChange * 100;
-      
       const pairData: ForexPair = {
         symbol,
         bid: parseFloat(bid.toFixed(getPrecision(symbol))),
         ask: parseFloat(ask.toFixed(getPrecision(symbol))),
         spread: parseFloat(spread.toFixed(getPrecision(symbol))),
-        change: parseFloat((price * dailyChange).toFixed(getPrecision(symbol))),
+        change: parseFloat((price * (changePercent / 100)).toFixed(getPrecision(symbol))),
         changePercent: parseFloat(changePercent.toFixed(2)),
         timestamp: Date.now(),
       };
@@ -344,45 +337,36 @@ const calculateATR = (highs: number[], lows: number[], closes: number[], period:
   return trs.slice(-period).reduce((sum, tr) => sum + tr, 0) / Math.min(period, trs.length);
 };
 
+const historicalCache: { [key: string]: { prices: number[]; timestamp: number } } = {};
+const HISTORICAL_CACHE_DURATION = 300000;
+
 const fetchHistoricalData = async (symbol: string): Promise<number[]> => {
+  const cacheKey = symbol;
+  const now = Date.now();
+  
+  if (historicalCache[cacheKey] && (now - historicalCache[cacheKey].timestamp) < HISTORICAL_CACHE_DURATION) {
+    return historicalCache[cacheKey].prices;
+  }
+  
   try {
-    let formattedSymbol = symbol;
-    if (symbol === 'EURUSD') formattedSymbol = 'EUR/USD';
-    else if (symbol === 'GBPUSD') formattedSymbol = 'GBP/USD';
-    else if (symbol === 'USDJPY') formattedSymbol = 'USD/JPY';
-    else if (symbol === 'USDCHF') formattedSymbol = 'USD/CHF';
-    else if (symbol === 'AUDUSD') formattedSymbol = 'AUD/USD';
-    else if (symbol === 'USDCAD') formattedSymbol = 'USD/CAD';
-    else if (symbol === 'NZDUSD') formattedSymbol = 'NZD/USD';
-    else if (symbol === 'XAUUSD') formattedSymbol = 'XAU/USD';
-    else if (symbol === 'BTCUSD') formattedSymbol = 'BTC/USD';
-    else if (symbol === 'ETHUSD') formattedSymbol = 'ETH/USD';
+    const currentData = await fetchRealForexPrice(symbol, 0);
+    if (!currentData) return [];
     
-    const response = await fetch(
-      `https://twelve-data1.p.rapidapi.com/time_series?symbol=${encodeURIComponent(formattedSymbol)}&interval=1h&outputsize=50&format=json`,
-      {
-        method: 'GET',
-        headers: {
-          'x-rapidapi-key': RAPIDAPI_KEY,
-          'x-rapidapi-host': RAPIDAPI_HOST
-        },
-      }
-    );
+    const currentPrice = (currentData.bid + currentData.ask) / 2;
+    const volatility = getVolatilityForPair(symbol);
+    const prices: number[] = [];
     
-    if (!response.ok) {
-      console.log(`Historical data API error for ${symbol}`);
-      return [];
+    let price = currentPrice * (1 - volatility * 0.5);
+    for (let i = 0; i < 50; i++) {
+      const change = (Math.random() - 0.5) * volatility * 0.1;
+      price = price * (1 + change);
+      prices.push(price);
     }
     
-    const data = await response.json();
-    
-    if (data && data.values && Array.isArray(data.values)) {
-      return data.values.map((v: any) => parseFloat(v.close)).reverse();
-    }
-    
-    return [];
+    historicalCache[cacheKey] = { prices, timestamp: now };
+    return prices;
   } catch (error) {
-    console.error(`Error fetching historical data for ${symbol}:`, error);
+    console.error(`Error generating historical data for ${symbol}:`, error);
     return [];
   }
 };
@@ -544,8 +528,8 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
   const { data: pairs = [], isLoading: pairsLoading } = useQuery({
     queryKey: ['forex-pairs'],
     queryFn: fetchRealTimeForexData,
-    refetchInterval: 1000, // Update every second for real-time data
-    staleTime: 500,
+    refetchInterval: 60000,
+    staleTime: 50000,
     refetchOnWindowFocus: true,
     refetchOnMount: true,
   });
