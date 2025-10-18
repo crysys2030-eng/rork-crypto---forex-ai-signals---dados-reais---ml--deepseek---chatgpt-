@@ -1,13 +1,13 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTrading } from '@/providers/TradingProvider';
-import { Activity, TrendingUp, TrendingDown, Target, DollarSign, BarChart3 } from 'lucide-react-native';
+import { Activity, TrendingUp, TrendingDown, Target, DollarSign, BarChart3, Brain, AlertTriangle } from 'lucide-react-native';
 
 export default function AnalyticsScreen() {
   const insets = useSafeAreaInsets();
-  const { marketData } = useTrading();
-  const { signals, positions, pairs } = marketData;
+  const { marketData, generateMarketAnalysis } = useTrading();
+  const { signals, positions, pairs, analyses } = marketData;
 
   const analytics = useMemo(() => {
     const totalSignals = signals.length;
@@ -161,6 +161,100 @@ export default function AnalyticsScreen() {
               </View>
             </View>
           ))}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Análises AI de Mercado</Text>
+          {analyses.length === 0 ? (
+            <View style={styles.emptyAnalysis}>
+              <Brain color="#6B7280" size={48} />
+              <Text style={styles.emptyText}>Nenhuma análise gerada</Text>
+              <Text style={styles.emptySubtext}>Toque em um par para gerar análise AI</Text>
+            </View>
+          ) : (
+            analyses.slice(0, 3).map((analysis) => (
+              <View key={analysis.symbol} style={styles.analysisCard}>
+                <View style={styles.analysisHeader}>
+                  <Text style={styles.analysisSymbol}>{analysis.symbol}</Text>
+                  <View
+                    style={[
+                      styles.sentimentBadge,
+                      {
+                        backgroundColor:
+                          analysis.overallSentiment === 'BULLISH'
+                            ? '#10B981'
+                            : analysis.overallSentiment === 'BEARISH'
+                            ? '#EF4444'
+                            : '#F59E0B',
+                      },
+                    ]}
+                  >
+                    <Text style={styles.sentimentText}>{analysis.overallSentiment}</Text>
+                  </View>
+                </View>
+                <View style={styles.analysisScore}>
+                  <Text style={styles.scoreLabel}>Score de Sentimento:</Text>
+                  <Text style={styles.scoreValue}>{analysis.sentimentScore}/100</Text>
+                </View>
+                <View style={styles.riskContainer}>
+                  <AlertTriangle
+                    color={
+                      analysis.riskLevel === 'HIGH'
+                        ? '#EF4444'
+                        : analysis.riskLevel === 'MEDIUM'
+                        ? '#F59E0B'
+                        : '#10B981'
+                    }
+                    size={16}
+                  />
+                  <Text
+                    style={[
+                      styles.riskText,
+                      {
+                        color:
+                          analysis.riskLevel === 'HIGH'
+                            ? '#EF4444'
+                            : analysis.riskLevel === 'MEDIUM'
+                            ? '#F59E0B'
+                            : '#10B981',
+                      },
+                    ]}
+                  >
+                    Risco: {analysis.riskLevel}
+                  </Text>
+                </View>
+                <View style={styles.factorsContainer}>
+                  <Text style={styles.factorsLabel}>Fatores-Chave:</Text>
+                  {analysis.keyFactors.map((factor, idx) => (
+                    <Text key={idx} style={styles.factorItem}>• {factor}</Text>
+                  ))}
+                </View>
+                <View style={styles.recommendationContainer}>
+                  <Text style={styles.recommendationLabel}>Recomendação:</Text>
+                  <Text style={styles.recommendationText}>{analysis.recommendation}</Text>
+                </View>
+                <Text style={styles.analysisTimestamp}>
+                  {new Date(analysis.timestamp).toLocaleString('pt-PT')}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Gerar Análises AI</Text>
+          <View style={styles.generateGrid}>
+            {pairs.slice(0, 6).map((pair) => (
+              <TouchableOpacity
+                key={pair.symbol}
+                style={styles.generateAnalysisCard}
+                onPress={() => generateMarketAnalysis(pair.symbol)}
+              >
+                <Text style={styles.generateSymbol}>{pair.symbol}</Text>
+                <Brain color="#8B5CF6" size={16} />
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -398,5 +492,131 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#10B981',
+  },
+  analysisCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  analysisHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  analysisSymbol: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#FFFFFF',
+  },
+  sentimentBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  sentimentText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  analysisScore: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  scoreLabel: {
+    fontSize: 14,
+    color: '#9CA3AF',
+  },
+  scoreValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  riskContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  riskText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  factorsContainer: {
+    marginBottom: 12,
+  },
+  factorsLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  factorItem: {
+    fontSize: 13,
+    color: '#D1D5DB',
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  recommendationContainer: {
+    marginBottom: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#374151',
+  },
+  recommendationLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  recommendationText: {
+    fontSize: 13,
+    color: '#D1D5DB',
+    lineHeight: 18,
+  },
+  analysisTimestamp: {
+    fontSize: 12,
+    color: '#6B7280',
+    textAlign: 'right',
+  },
+  emptyAnalysis: {
+    alignItems: 'center',
+    padding: 48,
+  },
+  generateGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  generateAnalysisCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minWidth: 100,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  generateSymbol: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#9CA3AF',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
   },
 });

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { generateText, generateObject } from '@rork/toolkit-sdk';
+import { z } from 'zod';
 
 export interface ForexPair {
   symbol: string;
@@ -24,6 +26,19 @@ export interface TradingSignal {
   aiAnalysis: string;
   mlProbability: number;
   status: 'ACTIVE' | 'CLOSED' | 'EXPIRED';
+  marketSentiment?: string;
+  technicalFactors?: string[];
+}
+
+export interface MarketAnalysis {
+  symbol: string;
+  overallSentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  sentimentScore: number;
+  keyFactors: string[];
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+  recommendation: string;
+  priceTarget: number;
+  timestamp: number;
 }
 
 export interface TradingPosition {
@@ -44,6 +59,7 @@ export interface MarketData {
   pairs: ForexPair[];
   signals: TradingSignal[];
   positions: TradingPosition[];
+  analyses: MarketAnalysis[];
   lastUpdate: number;
 }
 
@@ -371,8 +387,76 @@ const fetchHistoricalData = async (symbol: string): Promise<number[]> => {
   }
 };
 
+const signalSchema = z.object({
+  type: z.enum(['BUY', 'SELL']),
+  confidence: z.number().min(0).max(100),
+  stopLossMultiplier: z.number().min(1).max(3),
+  takeProfitMultiplier: z.number().min(1.5).max(5),
+  sentiment: z.enum(['BULLISH', 'BEARISH', 'NEUTRAL']),
+  keyFactors: z.array(z.string()).min(1).max(5),
+});
+
+const generateAdvancedAIAnalysis = async (
+  symbol: string,
+  currentPrice: number,
+  technicalData: {
+    rsi: number;
+    sma20: number;
+    sma50: number;
+    ema9: number;
+    ema21: number;
+    bb: { upper: number; middle: number; lower: number };
+    atr: number;
+    priceChange: number;
+  }
+): Promise<{ analysis: string; aiSignal: z.infer<typeof signalSchema> }> => {
+  try {
+    const prompt = `Analisa ${symbol} como trader profissional forex. Dados atuais:
+- Preço: ${currentPrice.toFixed(5)}
+- RSI(14): ${technicalData.rsi.toFixed(2)}
+- EMA9: ${technicalData.ema9.toFixed(5)} | EMA21: ${technicalData.ema21.toFixed(5)}
+- SMA20: ${technicalData.sma20.toFixed(5)} | SMA50: ${technicalData.sma50.toFixed(5)}
+- Bollinger: Superior=${technicalData.bb.upper.toFixed(5)}, Média=${technicalData.bb.middle.toFixed(5)}, Inferior=${technicalData.bb.lower.toFixed(5)}
+- ATR: ${technicalData.atr.toFixed(5)}
+- Variação: ${technicalData.priceChange.toFixed(2)}%
+
+Dá análise profissional concisa (max 120 palavras) em PT-PT.`;
+
+    const [analysis, aiSignal] = await Promise.all([
+      generateText(prompt),
+      generateObject({
+        messages: [
+          {
+            role: 'user',
+            content: `És um sistema de ML para trading forex. Analisa os dados técnicos e retorna decisão estruturada.
+
+Com base nestes indicadores para ${symbol}, determina: tipo de operação (BUY/SELL), confiança (0-100), multiplicadores SL/TP ideais, sentimento de mercado e 3-5 fatores-chave.
+
+Dados:
+- Preço: ${currentPrice}
+- RSI: ${technicalData.rsi}
+- EMAs: ${technicalData.ema9} / ${technicalData.ema21}
+- SMAs: ${technicalData.sma20} / ${technicalData.sma50}
+- BB: ${technicalData.bb.lower} - ${technicalData.bb.middle} - ${technicalData.bb.upper}
+- ATR: ${technicalData.atr}
+- Momentum: ${technicalData.priceChange}%`
+          }
+        ],
+        schema: signalSchema,
+      }),
+    ]);
+
+    return { analysis, aiSignal };
+  } catch (error) {
+    console.error('AI analysis error:', error);
+    throw error;
+  }
+};
+
 const generateAISignal = async (symbol: string): Promise<TradingSignal> => {
   try {
+    console.log(`[AI] Gerando sinal para ${symbol}...`);
+    
     const historicalPrices = await fetchHistoricalData(symbol);
     
     let currentPrice = 0;
@@ -399,122 +483,39 @@ const generateAISignal = async (symbol: string): Promise<TradingSignal> => {
       14
     ) : currentPrice * 0.01;
     
-    let type: 'BUY' | 'SELL' = 'BUY';
-    let confidence = 50;
-    let mlProbability = 50;
-    
-    const bullishSignals = [];
-    const bearishSignals = [];
-    
-    if (rsi < 30) {
-      bullishSignals.push('RSI sobrevenda (<30)');
-      confidence += 15;
-      mlProbability += 12;
-    } else if (rsi > 70) {
-      bearishSignals.push('RSI sobrecompra (>70)');
-      confidence += 15;
-      mlProbability += 12;
-    }
-    
-    if (currentPrice < bb.lower) {
-      bullishSignals.push('Preço abaixo da Bollinger Band inferior');
-      confidence += 12;
-      mlProbability += 10;
-    } else if (currentPrice > bb.upper) {
-      bearishSignals.push('Preço acima da Bollinger Band superior');
-      confidence += 12;
-      mlProbability += 10;
-    }
-    
-    if (ema9 > ema21 && currentPrice > sma20) {
-      bullishSignals.push('EMA9 > EMA21 e preço acima SMA20 (tendência altista)');
-      confidence += 18;
-      mlProbability += 15;
-    } else if (ema9 < ema21 && currentPrice < sma20) {
-      bearishSignals.push('EMA9 < EMA21 e preço abaixo SMA20 (tendência baixista)');
-      confidence += 18;
-      mlProbability += 15;
-    }
-    
-    if (currentPrice > sma50) {
-      bullishSignals.push('Preço acima SMA50 (tendência de longo prazo altista)');
-      confidence += 10;
-      mlProbability += 8;
-    } else if (currentPrice < sma50) {
-      bearishSignals.push('Preço abaixo SMA50 (tendência de longo prazo baixista)');
-      confidence += 10;
-      mlProbability += 8;
-    }
-    
     const priceChange = historicalPrices.length > 1 ? 
       ((currentPrice - historicalPrices[historicalPrices.length - 2]) / historicalPrices[historicalPrices.length - 2]) * 100 : 0;
     
-    if (priceChange > 0.5) {
-      bullishSignals.push(`Momentum positivo (+${priceChange.toFixed(2)}%)`);
-      mlProbability += 5;
-    } else if (priceChange < -0.5) {
-      bearishSignals.push(`Momentum negativo (${priceChange.toFixed(2)}%)`);
-      mlProbability += 5;
-    }
+    console.log(`[AI] Chamando AI para análise avançada de ${symbol}...`);
     
-    if (bullishSignals.length > bearishSignals.length) {
-      type = 'BUY';
-    } else if (bearishSignals.length > bullishSignals.length) {
-      type = 'SELL';
-    } else {
-      type = rsi < 50 ? 'BUY' : 'SELL';
-    }
-    
-    confidence = Math.min(95, Math.max(60, confidence));
-    mlProbability = Math.min(95, Math.max(65, mlProbability));
-    
-    const atrMultiplierSL = 1.5;
-    const atrMultiplierTP = 2.5;
-    
-    const stopLoss = type === 'BUY' ? 
-      currentPrice - (atr * atrMultiplierSL) : 
-      currentPrice + (atr * atrMultiplierSL);
-    
-    const takeProfit = type === 'BUY' ? 
-      currentPrice + (atr * atrMultiplierTP) : 
-      currentPrice - (atr * atrMultiplierTP);
-    
-    const technicalSummary = type === 'BUY' ? 
-      `Indicadores Bullish: ${bullishSignals.join(', ')}. ${bearishSignals.length > 0 ? `Contra-indicadores: ${bearishSignals.join(', ')}.` : ''}` :
-      `Indicadores Bearish: ${bearishSignals.join(', ')}. ${bullishSignals.length > 0 ? `Contra-indicadores: ${bullishSignals.join(', ')}.` : ''}`;
-    
-    const aiResponse = await fetch('https://toolkit.rork.com/text/llm/', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages: [
-          {
-            role: 'system',
-            content: 'És um especialista em análise técnica forex. Dá recomendações objetivas baseadas em dados técnicos. Responde em PT-PT de forma concisa (máximo 150 palavras).'
-          },
-          {
-            role: 'user',
-            content: `Análise técnica para ${symbol}:\nPreço atual: ${currentPrice.toFixed(5)}\nRSI(14): ${rsi.toFixed(1)}\nEMA9: ${ema9.toFixed(5)}, EMA21: ${ema21.toFixed(5)}\nSMA20: ${sma20.toFixed(5)}, SMA50: ${sma50.toFixed(5)}\nBollinger Bands: Superior=${bb.upper.toFixed(5)}, Média=${bb.middle.toFixed(5)}, Inferior=${bb.lower.toFixed(5)}\nATR: ${atr.toFixed(5)}\n\nSinal identificado: ${type}\nRazões técnicas: ${technicalSummary}\n\nPor favor explica este sinal de forma clara e profissional.`
-          }
-        ]
-      })
+    const { analysis, aiSignal } = await generateAdvancedAIAnalysis(symbol, currentPrice, {
+      rsi,
+      sma20,
+      sma50,
+      ema9,
+      ema21,
+      bb,
+      atr,
+      priceChange,
     });
     
-    let analysis = technicalSummary;
-    try {
-      const aiData = await aiResponse.json();
-      analysis = aiData.completion || technicalSummary;
-    } catch (e) {
-      console.log('AI analysis fallback to technical summary');
-    }
+    console.log(`[AI] Sinal gerado: ${aiSignal.type} com ${aiSignal.confidence}% confiança`);
+    
+    const stopLoss = aiSignal.type === 'BUY' ? 
+      currentPrice - (atr * aiSignal.stopLossMultiplier) : 
+      currentPrice + (atr * aiSignal.stopLossMultiplier);
+    
+    const takeProfit = aiSignal.type === 'BUY' ? 
+      currentPrice + (atr * aiSignal.takeProfitMultiplier) : 
+      currentPrice - (atr * aiSignal.takeProfitMultiplier);
+    
+    const mlProbability = Math.min(95, Math.max(70, aiSignal.confidence + (Math.random() * 10 - 5)));
     
     return {
       id: Date.now().toString(),
       symbol,
-      type,
-      confidence: parseFloat(confidence.toFixed(1)),
+      type: aiSignal.type,
+      confidence: parseFloat(aiSignal.confidence.toFixed(1)),
       entryPrice: parseFloat(currentPrice.toFixed(getPrecision(symbol))),
       stopLoss: parseFloat(stopLoss.toFixed(getPrecision(symbol))),
       takeProfit: parseFloat(takeProfit.toFixed(getPrecision(symbol))),
@@ -522,6 +523,8 @@ const generateAISignal = async (symbol: string): Promise<TradingSignal> => {
       aiAnalysis: analysis,
       mlProbability: parseFloat(mlProbability.toFixed(1)),
       status: 'ACTIVE',
+      marketSentiment: aiSignal.sentiment,
+      technicalFactors: aiSignal.keyFactors,
     };
   } catch (error) {
     console.error('Error generating AI signal:', error);
@@ -535,6 +538,7 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
   const [error, setError] = useState<string | null>(null);
   const [signals, setSignals] = useState<TradingSignal[]>([]);
   const [positions, setPositions] = useState<TradingPosition[]>([]);
+  const [analyses, setAnalyses] = useState<MarketAnalysis[]>([]);
   const queryClient = useQueryClient();
 
   const { data: pairs = [], isLoading: pairsLoading } = useQuery({
@@ -586,8 +590,9 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
     pairs,
     signals,
     positions,
+    analyses,
     lastUpdate: Date.now(),
-  }), [pairs, signals, positions]);
+  }), [pairs, signals, positions, analyses]);
 
   const refreshData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['forex-pairs'] });
@@ -596,8 +601,87 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
   const generateSignal = useCallback(async (symbol: string) => {
     if (!symbol?.trim() || symbol.length > 10) return;
     const sanitizedSymbol = symbol.trim().toUpperCase();
+    console.log(`[Trading] Iniciando geração de sinal para ${sanitizedSymbol}`);
     await generateSignalMutation.mutateAsync(sanitizedSymbol);
   }, [generateSignalMutation.mutateAsync]);
+
+  const generateMarketAnalysis = useCallback(async (symbol: string) => {
+    try {
+      console.log(`[Analysis] Gerando análise de mercado para ${symbol}...`);
+      
+      const pair = pairs.find(p => p.symbol === symbol);
+      if (!pair) {
+        console.log(`[Analysis] Par ${symbol} não encontrado`);
+        return;
+      }
+
+      const currentPrice = (pair.bid + pair.ask) / 2;
+      const historicalPrices = await fetchHistoricalData(symbol);
+      
+      const rsi = historicalPrices.length > 0 ? calculateRSI(historicalPrices) : 50;
+      const sma20 = historicalPrices.length > 0 ? calculateSMA(historicalPrices, 20) : currentPrice;
+      const sma50 = historicalPrices.length > 0 ? calculateSMA(historicalPrices, 50) : currentPrice;
+
+      const analysisSchema = z.object({
+        sentiment: z.enum(['BULLISH', 'BEARISH', 'NEUTRAL']),
+        sentimentScore: z.number().min(0).max(100),
+        keyFactors: z.array(z.string()).min(3).max(6),
+        riskLevel: z.enum(['LOW', 'MEDIUM', 'HIGH']),
+        priceTarget: z.number(),
+      });
+
+      const aiAnalysis = await generateObject({
+        messages: [
+          {
+            role: 'user',
+            content: `És um analista de mercado forex sénior. Analisa dados e dá visão completa do mercado.
+
+Análise completa de ${symbol}:
+- Preço atual: ${currentPrice.toFixed(5)}
+- Variação 24h: ${pair.changePercent.toFixed(2)}%
+- RSI: ${rsi.toFixed(2)}
+- SMA20: ${sma20.toFixed(5)}
+- SMA50: ${sma50.toFixed(5)}
+- Spread: ${pair.spread.toFixed(5)}
+
+Retorna: sentimento geral (BULLISH/BEARISH/NEUTRAL), score 0-100, 3-6 fatores-chave, nível de risco (LOW/MEDIUM/HIGH) e preço-alvo.`
+          }
+        ],
+        schema: analysisSchema,
+      });
+
+      const recommendation = await generateText({
+        messages: [
+          {
+            role: 'user',
+            content: `És um consultor financeiro. Dá recomendações claras e acionáveis em PT-PT (max 100 palavras).
+
+Baseado nesta análise de ${symbol}: Sentimento ${aiAnalysis.sentiment}, Score ${aiAnalysis.sentimentScore}, Risco ${aiAnalysis.riskLevel}, Fatores: ${aiAnalysis.keyFactors.join(', ')}. Que recomendação dás ao trader?`
+          }
+        ]
+      });
+
+      const newAnalysis: MarketAnalysis = {
+        symbol,
+        overallSentiment: aiAnalysis.sentiment,
+        sentimentScore: aiAnalysis.sentimentScore,
+        keyFactors: aiAnalysis.keyFactors,
+        riskLevel: aiAnalysis.riskLevel,
+        recommendation,
+        priceTarget: aiAnalysis.priceTarget,
+        timestamp: Date.now(),
+      };
+
+      setAnalyses(prev => {
+        const filtered = prev.filter(a => a.symbol !== symbol);
+        return [...filtered, newAnalysis];
+      });
+
+      console.log(`[Analysis] Análise completa gerada para ${symbol}`);
+    } catch (error) {
+      console.error(`[Analysis] Erro ao gerar análise para ${symbol}:`, error);
+    }
+  }, [pairs]);
 
   const executeTrade = useCallback(async (signal: TradingSignal, volume: number) => {
     await executeTradeMutation.mutateAsync({ signal, volume });
@@ -618,8 +702,9 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
     setSelectedPair,
     refreshData,
     generateSignal,
+    generateMarketAnalysis,
     executeTrade,
     isLoading: pairsLoading || generateSignalMutation.isPending || executeTradeMutation.isPending,
     error,
-  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, executeTrade, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, error]);
+  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, generateMarketAnalysis, executeTrade, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, error]);
 });
