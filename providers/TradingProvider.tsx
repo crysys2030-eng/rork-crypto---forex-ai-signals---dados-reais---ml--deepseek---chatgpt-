@@ -413,18 +413,32 @@ Dá análise profissional concisa (max 120 palavras) em PT-PT.`;
         messages: [
           {
             role: 'user',
-            content: `És um sistema de ML para trading forex. Analisa os dados técnicos e retorna decisão estruturada.
+            content: `You are a forex ML trading system. Analyze technical data and return structured decision.
 
-Com base nestes indicadores para ${symbol}, determina: tipo de operação (use EXATAMENTE "BUY" ou "SELL" em maiúsculas), confiança (0-100), multiplicadores SL/TP ideais, sentimento de mercado (use EXATAMENTE "BULLISH", "BEARISH" ou "NEUTRAL" em maiúsculas) e 3-5 fatores-chave.
+Based on these indicators for ${symbol}, determine:
+1. Operation type: MUST be exactly "BUY" or "SELL" (uppercase)
+2. Confidence: number between 0-100
+3. Stop loss multiplier: number between 1-3
+4. Take profit multiplier: number between 1.5-5
+5. Market sentiment: MUST be exactly "BULLISH", "BEARISH", or "NEUTRAL" (uppercase)
+6. Key factors: array of 3-5 strings explaining your decision
 
-Dados:
-- Preço: ${currentPrice}
-- RSI: ${technicalData.rsi}
-- EMAs: ${technicalData.ema9} / ${technicalData.ema21}
-- SMAs: ${technicalData.sma20} / ${technicalData.sma50}
-- BB: ${technicalData.bb.lower} - ${technicalData.bb.middle} - ${technicalData.bb.upper}
+Technical Data:
+- Price: ${currentPrice}
+- RSI: ${technicalData.rsi} (oversold<30, overbought>70)
+- EMA9: ${technicalData.ema9} / EMA21: ${technicalData.ema21}
+- SMA20: ${technicalData.sma20} / SMA50: ${technicalData.sma50}
+- Bollinger Bands: ${technicalData.bb.lower} - ${technicalData.bb.middle} - ${technicalData.bb.upper}
 - ATR: ${technicalData.atr}
-- Momentum: ${technicalData.priceChange}%`
+- Momentum: ${technicalData.priceChange}%
+
+IMPORTANT: Return ALL required fields:
+- type: "BUY" or "SELL"
+- confidence: number (0-100)
+- stopLossMultiplier: number (1-3)
+- takeProfitMultiplier: number (1.5-5)
+- sentiment: "BULLISH", "BEARISH", or "NEUTRAL"
+- keyFactors: array of strings (3-5 items)`
           }
         ],
         schema: signalSchema,
