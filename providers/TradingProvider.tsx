@@ -373,11 +373,15 @@ const fetchHistoricalData = async (symbol: string): Promise<number[]> => {
 };
 
 const signalSchema = z.object({
-  type: z.enum(['BUY', 'SELL']),
+  type: z.string().transform(val => val.toUpperCase()).refine(val => val === 'BUY' || val === 'SELL', {
+    message: 'Type must be BUY or SELL'
+  }),
   confidence: z.number().min(0).max(100),
   stopLossMultiplier: z.number().min(1).max(3),
   takeProfitMultiplier: z.number().min(1.5).max(5),
-  sentiment: z.enum(['BULLISH', 'BEARISH', 'NEUTRAL']),
+  sentiment: z.string().transform(val => val.toUpperCase()).refine(val => ['BULLISH', 'BEARISH', 'NEUTRAL'].includes(val), {
+    message: 'Sentiment must be BULLISH, BEARISH, or NEUTRAL'
+  }),
   keyFactors: z.array(z.string()).min(1).max(5),
 });
 
@@ -415,7 +419,7 @@ Dá análise profissional concisa (max 120 palavras) em PT-PT.`;
             role: 'user',
             content: `És um sistema de ML para trading forex. Analisa os dados técnicos e retorna decisão estruturada.
 
-Com base nestes indicadores para ${symbol}, determina: tipo de operação (BUY/SELL), confiança (0-100), multiplicadores SL/TP ideais, sentimento de mercado e 3-5 fatores-chave.
+Com base nestes indicadores para ${symbol}, determina: tipo de operação (use EXATAMENTE "BUY" ou "SELL" em maiúsculas), confiança (0-100), multiplicadores SL/TP ideais, sentimento de mercado (use EXATAMENTE "BULLISH", "BEARISH" ou "NEUTRAL" em maiúsculas) e 3-5 fatores-chave.
 
 Dados:
 - Preço: ${currentPrice}
@@ -499,7 +503,7 @@ const generateAISignal = async (symbol: string): Promise<TradingSignal> => {
     return {
       id: Date.now().toString(),
       symbol,
-      type: aiSignal.type,
+      type: aiSignal.type as 'BUY' | 'SELL',
       confidence: parseFloat(aiSignal.confidence.toFixed(1)),
       entryPrice: parseFloat(currentPrice.toFixed(getPrecision(symbol))),
       stopLoss: parseFloat(stopLoss.toFixed(getPrecision(symbol))),
