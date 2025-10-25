@@ -3,6 +3,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { generateText, generateObject } from '@rork/toolkit-sdk';
 import { z } from 'zod';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface ForexPair {
   symbol: string;
@@ -559,7 +560,32 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
   const [positions, setPositions] = useState<TradingPosition[]>([]);
   const [analyses, setAnalyses] = useState<MarketAnalysis[]>([]);
   const [chartAnalyses, setChartAnalyses] = useState<ChartAnalysis[]>([]);
+  const [forexApiKey, setForexApiKey] = useState<string | null>(null);
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const loadApiKey = async () => {
+      try {
+        const key = await AsyncStorage.getItem('forexApiKey');
+        setForexApiKey(key);
+        console.log('[API] Chave API carregada:', key ? 'Presente' : 'Ausente');
+      } catch (error) {
+        console.error('[API] Erro ao carregar chave API:', error);
+      }
+    };
+    loadApiKey();
+  }, []);
+
+  const saveForexApiKey = useCallback(async (key: string) => {
+    try {
+      await AsyncStorage.setItem('forexApiKey', key);
+      setForexApiKey(key);
+      console.log('[API] Chave API salva com sucesso');
+    } catch (error) {
+      console.error('[API] Erro ao salvar chave API:', error);
+      throw error;
+    }
+  }, []);
 
   const { data: pairs = [], isLoading: pairsLoading } = useQuery({
     queryKey: ['forex-pairs'],
@@ -966,7 +992,9 @@ Dá insights sobre:
     generateMarketAnalysis,
     analyzeChartWithAI,
     executeTrade,
+    forexApiKey,
+    saveForexApiKey,
     isLoading: pairsLoading || generateSignalMutation.isPending || executeTradeMutation.isPending,
     error,
-  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, generateMarketAnalysis, analyzeChartWithAI, executeTrade, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, error]);
+  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, generateMarketAnalysis, analyzeChartWithAI, executeTrade, forexApiKey, saveForexApiKey, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, error]);
 });

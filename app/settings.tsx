@@ -1,10 +1,13 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Switch, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Settings, Key, Bell, Palette, Info, Shield, Database } from 'lucide-react-native';
+import { Settings, Key, Bell, Palette, Info, Shield, Database, Check } from 'lucide-react-native';
+import { useTrading } from '@/providers/TradingProvider';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
+  const { forexApiKey, saveForexApiKey } = useTrading();
   const [apiKey, setApiKey] = useState<string>('');
   const [mt5Login, setMt5Login] = useState<string>('');
   const [mt5Password, setMt5Password] = useState<string>('');
@@ -12,9 +15,57 @@ export default function SettingsScreen() {
   const [notifications, setNotifications] = useState<boolean>(true);
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const [autoTrading, setAutoTrading] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
 
-  const handleSaveSettings = () => {
-    console.log('Configurações salvas');
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        if (forexApiKey) {
+          setApiKey(forexApiKey);
+        }
+        const storedMt5Login = await AsyncStorage.getItem('mt5Login');
+        const storedMt5Server = await AsyncStorage.getItem('mt5Server');
+        const storedNotifications = await AsyncStorage.getItem('notifications');
+        const storedDarkMode = await AsyncStorage.getItem('darkMode');
+        const storedAutoTrading = await AsyncStorage.getItem('autoTrading');
+        
+        if (storedMt5Login) setMt5Login(storedMt5Login);
+        if (storedMt5Server) setMt5Server(storedMt5Server);
+        if (storedNotifications) setNotifications(JSON.parse(storedNotifications));
+        if (storedDarkMode) setDarkMode(JSON.parse(storedDarkMode));
+        if (storedAutoTrading) setAutoTrading(JSON.parse(storedAutoTrading));
+      } catch (error) {
+        console.error('Erro ao carregar configurações:', error);
+      }
+    };
+    loadSettings();
+  }, [forexApiKey]);
+
+  const handleSaveSettings = async () => {
+    setIsSaving(true);
+    try {
+      if (apiKey.trim()) {
+        await saveForexApiKey(apiKey.trim());
+      }
+      
+      if (mt5Login.trim()) {
+        await AsyncStorage.setItem('mt5Login', mt5Login.trim());
+      }
+      if (mt5Server.trim()) {
+        await AsyncStorage.setItem('mt5Server', mt5Server.trim());
+      }
+      await AsyncStorage.setItem('notifications', JSON.stringify(notifications));
+      await AsyncStorage.setItem('darkMode', JSON.stringify(darkMode));
+      await AsyncStorage.setItem('autoTrading', JSON.stringify(autoTrading));
+      
+      Alert.alert('Sucesso', 'Configurações salvas com sucesso!', [{ text: 'OK' }]);
+      console.log('Configurações salvas com sucesso');
+    } catch (error) {
+      console.error('Erro ao salvar configurações:', error);
+      Alert.alert('Erro', 'Não foi possível salvar as configurações', [{ text: 'OK' }]);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -176,8 +227,19 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.saveButton} onPress={handleSaveSettings}>
-          <Text style={styles.saveButtonText}>Salvar Configurações</Text>
+        <TouchableOpacity 
+          style={[styles.saveButton, isSaving && styles.saveButtonDisabled]} 
+          onPress={handleSaveSettings}
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <Text style={styles.saveButtonText}>Salvando...</Text>
+          ) : (
+            <View style={styles.saveButtonContent}>
+              <Check color="#FFFFFF" size={20} />
+              <Text style={styles.saveButtonText}>Salvar Configurações</Text>
+            </View>
+          )}
         </TouchableOpacity>
 
         <View style={styles.disclaimer}>
@@ -317,6 +379,14 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     marginBottom: 24,
     alignItems: 'center',
+  },
+  saveButtonDisabled: {
+    backgroundColor: '#6B7280',
+  },
+  saveButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   saveButtonText: {
     fontSize: 18,
