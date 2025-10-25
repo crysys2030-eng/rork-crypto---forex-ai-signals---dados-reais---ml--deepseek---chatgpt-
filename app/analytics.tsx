@@ -2,12 +2,12 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTrading } from '@/providers/TradingProvider';
-import { Activity, TrendingUp, TrendingDown, Target, DollarSign, BarChart3, Brain, AlertTriangle } from 'lucide-react-native';
+import { Activity, TrendingUp, TrendingDown, Target, DollarSign, BarChart3, Brain, AlertTriangle, LineChart, Zap } from 'lucide-react-native';
 
 export default function AnalyticsScreen() {
   const insets = useSafeAreaInsets();
-  const { marketData, generateMarketAnalysis } = useTrading();
-  const { signals, positions, pairs, analyses } = marketData;
+  const { marketData, generateMarketAnalysis, analyzeChartWithAI } = useTrading();
+  const { signals, positions, pairs, analyses, chartAnalyses } = marketData;
 
   const analytics = useMemo(() => {
     const totalSignals = signals.length;
@@ -252,6 +252,130 @@ export default function AnalyticsScreen() {
               >
                 <Text style={styles.generateSymbol}>{pair.symbol}</Text>
                 <Brain color="#8B5CF6" size={16} />
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Análise de Gráficos AI</Text>
+          {chartAnalyses.length === 0 ? (
+            <View style={styles.emptyAnalysis}>
+              <LineChart color="#6B7280" size={48} />
+              <Text style={styles.emptyText}>Nenhuma análise de gráfico</Text>
+              <Text style={styles.emptySubtext}>Toque em um par abaixo para análise AI em tempo real</Text>
+            </View>
+          ) : (
+            chartAnalyses.slice(0, 2).map((chartAnalysis) => (
+              <View key={chartAnalysis.symbol} style={styles.chartAnalysisCard}>
+                <View style={styles.chartAnalysisHeader}>
+                  <Text style={styles.analysisSymbol}>{chartAnalysis.symbol}</Text>
+                  <View style={styles.trendMomentumRow}>
+                    <View
+                      style={[
+                        styles.trendBadge,
+                        {
+                          backgroundColor:
+                            chartAnalysis.trend === 'UPTREND'
+                              ? '#10B981'
+                              : chartAnalysis.trend === 'DOWNTREND'
+                              ? '#EF4444'
+                              : '#F59E0B',
+                        },
+                      ]}
+                    >
+                      <Text style={styles.trendText}>{chartAnalysis.trend}</Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.momentumBadge,
+                        {
+                          backgroundColor:
+                            chartAnalysis.momentum === 'STRONG'
+                              ? '#8B5CF6'
+                              : chartAnalysis.momentum === 'WEAK'
+                              ? '#6B7280'
+                              : '#3B82F6',
+                        },
+                      ]}
+                    >
+                      <Text style={styles.momentumText}>{chartAnalysis.momentum}</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {chartAnalysis.patterns.length > 0 && (
+                  <View style={styles.patternsContainer}>
+                    <Text style={styles.patternsLabel}>Padrões Detectados:</Text>
+                    {chartAnalysis.patterns.map((pattern, idx) => (
+                      <View key={idx} style={styles.patternItem}>
+                        <Zap color="#F59E0B" size={14} />
+                        <Text style={styles.patternType}>{pattern.type}</Text>
+                        <Text style={styles.patternConfidence}>({pattern.confidence}%)</Text>
+                      </View>
+                    ))}
+                    {chartAnalysis.patterns.map((pattern, idx) => (
+                      <Text key={`desc-${idx}`} style={styles.patternDescription}>
+                        • {pattern.description}
+                      </Text>
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.levelsContainer}>
+                  <View style={styles.levelSection}>
+                    <Text style={styles.levelLabel}>Suportes:</Text>
+                    {chartAnalysis.supportLevels.map((level, idx) => (
+                      <Text key={idx} style={styles.supportLevel}>
+                        {level.toFixed(5)}
+                      </Text>
+                    ))}
+                  </View>
+                  <View style={styles.levelSection}>
+                    <Text style={styles.levelLabel}>Resistências:</Text>
+                    {chartAnalysis.resistanceLevels.map((level, idx) => (
+                      <Text key={idx} style={styles.resistanceLevel}>
+                        {level.toFixed(5)}
+                      </Text>
+                    ))}
+                  </View>
+                </View>
+
+                {chartAnalysis.candlestickSignals.length > 0 && (
+                  <View style={styles.candlestickContainer}>
+                    <Text style={styles.candlestickLabel}>Sinais Candlestick:</Text>
+                    {chartAnalysis.candlestickSignals.map((signal, idx) => (
+                      <Text key={idx} style={styles.candlestickSignal}>
+                        • {signal}
+                      </Text>
+                    ))}
+                  </View>
+                )}
+
+                <View style={styles.aiInterpretationContainer}>
+                  <Text style={styles.aiInterpretationLabel}>Interpretação AI:</Text>
+                  <Text style={styles.aiInterpretationText}>{chartAnalysis.aiInterpretation}</Text>
+                </View>
+
+                <Text style={styles.analysisTimestamp}>
+                  {new Date(chartAnalysis.timestamp).toLocaleString('pt-PT')}
+                </Text>
+              </View>
+            ))
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Gerar Análises de Gráfico</Text>
+          <View style={styles.generateGrid}>
+            {pairs.slice(0, 6).map((pair) => (
+              <TouchableOpacity
+                key={pair.symbol}
+                style={styles.generateChartCard}
+                onPress={() => analyzeChartWithAI(pair.symbol)}
+              >
+                <Text style={styles.generateSymbol}>{pair.symbol}</Text>
+                <LineChart color="#3B82F6" size={16} />
               </TouchableOpacity>
             ))}
           </View>
@@ -618,5 +742,149 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
+  },
+  chartAnalysisCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#374151',
+  },
+  chartAnalysisHeader: {
+    marginBottom: 16,
+  },
+  trendMomentumRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  trendBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  trendText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#FFFFFF',
+  },
+  momentumBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  momentumText: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#FFFFFF',
+  },
+  patternsContainer: {
+    marginBottom: 16,
+    backgroundColor: '#374151',
+    padding: 12,
+    borderRadius: 12,
+  },
+  patternsLabel: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  patternItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  patternType: {
+    fontSize: 13,
+    fontWeight: '600' as const,
+    color: '#F59E0B',
+  },
+  patternConfidence: {
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  patternDescription: {
+    fontSize: 12,
+    color: '#D1D5DB',
+    marginLeft: 22,
+    marginTop: 2,
+  },
+  levelsContainer: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 16,
+  },
+  levelSection: {
+    flex: 1,
+    backgroundColor: '#374151',
+    padding: 12,
+    borderRadius: 12,
+  },
+  levelLabel: {
+    fontSize: 12,
+    fontWeight: '600' as const,
+    color: '#9CA3AF',
+    marginBottom: 8,
+  },
+  supportLevel: {
+    fontSize: 13,
+    color: '#10B981',
+    marginBottom: 4,
+    fontWeight: '600' as const,
+  },
+  resistanceLevel: {
+    fontSize: 13,
+    color: '#EF4444',
+    marginBottom: 4,
+    fontWeight: '600' as const,
+  },
+  candlestickContainer: {
+    marginBottom: 16,
+    backgroundColor: '#374151',
+    padding: 12,
+    borderRadius: 12,
+  },
+  candlestickLabel: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  candlestickSignal: {
+    fontSize: 12,
+    color: '#D1D5DB',
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  aiInterpretationContainer: {
+    marginBottom: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#374151',
+  },
+  aiInterpretationLabel: {
+    fontSize: 14,
+    fontWeight: '600' as const,
+    color: '#FFFFFF',
+    marginBottom: 8,
+  },
+  aiInterpretationText: {
+    fontSize: 13,
+    color: '#D1D5DB',
+    lineHeight: 20,
+  },
+  generateChartCard: {
+    backgroundColor: '#1F2937',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minWidth: 100,
+    borderWidth: 1,
+    borderColor: '#374151',
   },
 });

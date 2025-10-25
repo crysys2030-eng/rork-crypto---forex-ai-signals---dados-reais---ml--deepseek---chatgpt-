@@ -41,6 +41,25 @@ export interface MarketAnalysis {
   timestamp: number;
 }
 
+export interface ChartPattern {
+  type: string;
+  confidence: number;
+  description: string;
+  priceLevel: number;
+}
+
+export interface ChartAnalysis {
+  symbol: string;
+  patterns: ChartPattern[];
+  supportLevels: number[];
+  resistanceLevels: number[];
+  trend: 'UPTREND' | 'DOWNTREND' | 'SIDEWAYS';
+  momentum: 'STRONG' | 'MODERATE' | 'WEAK';
+  aiInterpretation: string;
+  candlestickSignals: string[];
+  timestamp: number;
+}
+
 export interface TradingPosition {
   id: string;
   symbol: string;
@@ -60,6 +79,7 @@ export interface MarketData {
   signals: TradingSignal[];
   positions: TradingPosition[];
   analyses: MarketAnalysis[];
+  chartAnalyses: ChartAnalysis[];
   lastUpdate: number;
 }
 
@@ -538,6 +558,7 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
   const [signals, setSignals] = useState<TradingSignal[]>([]);
   const [positions, setPositions] = useState<TradingPosition[]>([]);
   const [analyses, setAnalyses] = useState<MarketAnalysis[]>([]);
+  const [chartAnalyses, setChartAnalyses] = useState<ChartAnalysis[]>([]);
   const queryClient = useQueryClient();
 
   const { data: pairs = [], isLoading: pairsLoading } = useQuery({
@@ -590,8 +611,9 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
     signals,
     positions,
     analyses,
+    chartAnalyses,
     lastUpdate: Date.now(),
-  }), [pairs, signals, positions, analyses]);
+  }), [pairs, signals, positions, analyses, chartAnalyses]);
 
   const refreshData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['forex-pairs'] });
@@ -686,6 +708,246 @@ Baseado nesta análise de ${symbol}: Sentimento ${aiAnalysis.sentiment}, Score $
     await executeTradeMutation.mutateAsync({ signal, volume });
   }, [executeTradeMutation.mutateAsync]);
 
+  const detectChartPatterns = useCallback((prices: number[], currentPrice: number) => {
+    const patterns: ChartPattern[] = [];
+    
+    if (prices.length < 10) return patterns;
+    
+    const recentPrices = prices.slice(-10);
+    const minPrice = Math.min(...recentPrices);
+    const maxPrice = Math.max(...recentPrices);
+    const priceRange = maxPrice - minPrice;
+    
+    const firstHalf = recentPrices.slice(0, 5);
+    const secondHalf = recentPrices.slice(5);
+    const firstAvg = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+    const secondAvg = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+    
+    if (secondAvg > firstAvg && (secondAvg - firstAvg) > priceRange * 0.3) {
+      patterns.push({
+        type: 'Ascending Triangle',
+        confidence: 75,
+        description: 'Padrão de alta indicando potencial rompimento',
+        priceLevel: currentPrice,
+      });
+    }
+    
+    if (secondAvg < firstAvg && (firstAvg - secondAvg) > priceRange * 0.3) {
+      patterns.push({
+        type: 'Descending Triangle',
+        confidence: 72,
+        description: 'Padrão de baixa indicando possível queda',
+        priceLevel: currentPrice,
+      });
+    }
+    
+    const isDoubleBottom = recentPrices[2] < recentPrices[1] && 
+                          recentPrices[2] < recentPrices[3] &&
+                          recentPrices[7] < recentPrices[6] &&
+                          recentPrices[7] < recentPrices[8] &&
+                          Math.abs(recentPrices[2] - recentPrices[7]) < priceRange * 0.1;
+    
+    if (isDoubleBottom) {
+      patterns.push({
+        type: 'Double Bottom',
+        confidence: 80,
+        description: 'Padrão de reversão de alta - forte sinal de compra',
+        priceLevel: Math.min(recentPrices[2], recentPrices[7]),
+      });
+    }
+    
+    const isDoubleTop = recentPrices[2] > recentPrices[1] && 
+                       recentPrices[2] > recentPrices[3] &&
+                       recentPrices[7] > recentPrices[6] &&
+                       recentPrices[7] > recentPrices[8] &&
+                       Math.abs(recentPrices[2] - recentPrices[7]) < priceRange * 0.1;
+    
+    if (isDoubleTop) {
+      patterns.push({
+        type: 'Double Top',
+        confidence: 78,
+        description: 'Padrão de reversão de baixa - sinal de venda',
+        priceLevel: Math.max(recentPrices[2], recentPrices[7]),
+      });
+    }
+    
+    const trend = recentPrices.slice(-3);
+    if (trend[0] < trend[1] && trend[1] < trend[2]) {
+      patterns.push({
+        type: 'Bullish Momentum',
+        confidence: 68,
+        description: 'Momentum de alta consistente',
+        priceLevel: currentPrice,
+      });
+    }
+    
+    if (trend[0] > trend[1] && trend[1] > trend[2]) {
+      patterns.push({
+        type: 'Bearish Momentum',
+        confidence: 68,
+        description: 'Momentum de baixa consistente',
+        priceLevel: currentPrice,
+      });
+    }
+    
+    return patterns;
+  }, []);
+
+  const detectCandlestickPatterns = useCallback((prices: number[]) => {
+    const signals: string[] = [];
+    
+    if (prices.length < 5) return signals;
+    
+    const recent = prices.slice(-5);
+    const [p1, p2, p3, p4, p5] = recent;
+    
+    if (p4 < p3 && p5 > p4 && (p5 - p4) > (p4 - p3)) {
+      signals.push('Hammer Bullish - Reversão de alta provável');
+    }
+    
+    if (p4 > p3 && p5 < p4 && (p4 - p5) > (p3 - p4)) {
+      signals.push('Shooting Star - Reversão de baixa possível');
+    }
+    
+    if (p2 < p1 && p3 > p2 && p3 > p1) {
+      signals.push('Engulfing Bullish - Forte sinal de compra');
+    }
+    
+    if (p2 > p1 && p3 < p2 && p3 < p1) {
+      signals.push('Engulfing Bearish - Forte sinal de venda');
+    }
+    
+    const body2 = Math.abs(p3 - p2);
+    const body3 = Math.abs(p4 - p3);
+    if (body3 < body2 * 0.3 && p4 > Math.min(p2, p3) && p4 < Math.max(p2, p3)) {
+      signals.push('Doji - Indecisão no mercado, possível reversão');
+    }
+    
+    if (signals.length === 0) {
+      signals.push('Nenhum padrão de candlestick significativo detectado');
+    }
+    
+    return signals;
+  }, []);
+
+  const calculateSupportResistance = useCallback((prices: number[]) => {
+    if (prices.length < 20) {
+      return { support: [], resistance: [] };
+    }
+    
+    const sortedPrices = [...prices].sort((a, b) => a - b);
+    const support: number[] = [];
+    const resistance: number[] = [];
+    
+    const lowerQuartile = sortedPrices[Math.floor(sortedPrices.length * 0.25)];
+    const upperQuartile = sortedPrices[Math.floor(sortedPrices.length * 0.75)];
+    const median = sortedPrices[Math.floor(sortedPrices.length * 0.5)];
+    
+    support.push(lowerQuartile);
+    support.push(Math.min(...prices.slice(-10)));
+    
+    resistance.push(upperQuartile);
+    resistance.push(Math.max(...prices.slice(-10)));
+    
+    return {
+      support: [...new Set(support)].sort((a, b) => a - b),
+      resistance: [...new Set(resistance)].sort((a, b) => b - a),
+    };
+  }, []);
+
+  const analyzeChartWithAI = useCallback(async (symbol: string) => {
+    try {
+      console.log(`[Chart AI] Analisando gráfico de ${symbol}...`);
+      
+      const pair = pairs.find(p => p.symbol === symbol);
+      if (!pair) {
+        console.log(`[Chart AI] Par ${symbol} não encontrado`);
+        return;
+      }
+
+      const currentPrice = (pair.bid + pair.ask) / 2;
+      const historicalPrices = await fetchHistoricalData(symbol);
+      
+      if (historicalPrices.length < 20) {
+        console.log(`[Chart AI] Dados históricos insuficientes para ${symbol}`);
+        return;
+      }
+      
+      const patterns = detectChartPatterns(historicalPrices, currentPrice);
+      const candlestickSignals = detectCandlestickPatterns(historicalPrices);
+      const { support, resistance } = calculateSupportResistance(historicalPrices);
+      
+      const rsi = calculateRSI(historicalPrices);
+      const sma20 = calculateSMA(historicalPrices, 20);
+      const ema9 = calculateEMA(historicalPrices, 9);
+      
+      let trend: 'UPTREND' | 'DOWNTREND' | 'SIDEWAYS' = 'SIDEWAYS';
+      if (currentPrice > sma20 && ema9 > sma20) {
+        trend = 'UPTREND';
+      } else if (currentPrice < sma20 && ema9 < sma20) {
+        trend = 'DOWNTREND';
+      }
+      
+      let momentum: 'STRONG' | 'MODERATE' | 'WEAK' = 'MODERATE';
+      if (Math.abs(pair.changePercent) > 1.5) {
+        momentum = 'STRONG';
+      } else if (Math.abs(pair.changePercent) < 0.5) {
+        momentum = 'WEAK';
+      }
+      
+      const chartDataSummary = `
+Símolo: ${symbol}
+Preço Atual: ${currentPrice.toFixed(5)}
+Tendência: ${trend}
+Momentum: ${momentum}
+RSI: ${rsi.toFixed(2)}
+SMA20: ${sma20.toFixed(5)}
+EMA9: ${ema9.toFixed(5)}
+Suportes: ${support.map(s => s.toFixed(5)).join(', ')}
+Resistências: ${resistance.map(r => r.toFixed(5)).join(', ')}
+Padrões Detectados: ${patterns.map(p => `${p.type} (${p.confidence}%)`).join(', ')}
+Sinais Candlestick: ${candlestickSignals.join('; ')}`;
+
+      const aiInterpretation = await generateText({
+        messages: [
+          {
+            role: 'user',
+            content: `És um analista técnico expert em leitura de gráficos forex. Analisa os seguintes dados de gráfico em tempo real e dá uma interpretação profissional concisa (max 150 palavras) em PT-PT:
+
+${chartDataSummary}
+
+Dá insights sobre:
+1. O que os padrões indicam
+2. Níveis críticos a observar
+3. Cenários prováveis de curto prazo
+4. Recomendação de entrada/saída`
+          }
+        ]
+      });
+
+      const newChartAnalysis: ChartAnalysis = {
+        symbol,
+        patterns,
+        supportLevels: support,
+        resistanceLevels: resistance,
+        trend,
+        momentum,
+        aiInterpretation,
+        candlestickSignals,
+        timestamp: Date.now(),
+      };
+
+      setChartAnalyses(prev => {
+        const filtered = prev.filter(a => a.symbol !== symbol);
+        return [...filtered, newChartAnalysis];
+      });
+
+      console.log(`[Chart AI] Análise de gráfico completa para ${symbol}`);
+    } catch (error) {
+      console.error(`[Chart AI] Erro ao analisar gráfico de ${symbol}:`, error);
+    }
+  }, [pairs, detectChartPatterns, detectCandlestickPatterns, calculateSupportResistance]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setIsConnected(Math.random() > 0.1);
@@ -702,8 +964,9 @@ Baseado nesta análise de ${symbol}: Sentimento ${aiAnalysis.sentiment}, Score $
     refreshData,
     generateSignal,
     generateMarketAnalysis,
+    analyzeChartWithAI,
     executeTrade,
     isLoading: pairsLoading || generateSignalMutation.isPending || executeTradeMutation.isPending,
     error,
-  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, generateMarketAnalysis, executeTrade, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, error]);
+  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, generateMarketAnalysis, analyzeChartWithAI, executeTrade, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, error]);
 });
