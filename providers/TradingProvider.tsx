@@ -133,51 +133,65 @@ const fetchRealForexPrice = async (symbol: string, baseRate: number): Promise<Fo
   }
   
   try {
-    let apiUrl = '';
-    
-    if (symbol.startsWith('BTC') || symbol.startsWith('ETH') || symbol === 'ADAUSD' || symbol === 'DOTUSD') {
-      const cryptoSymbol = symbol.replace('USD', '').toLowerCase();
-      apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${cryptoSymbol === 'btc' ? 'bitcoin' : cryptoSymbol === 'eth' ? 'ethereum' : cryptoSymbol === 'ada' ? 'cardano' : 'polkadot'}&vs_currencies=usd&include_24hr_change=true`;
-    } else if (symbol.startsWith('XAU') || symbol.startsWith('XAG')) {
-      const metalSymbol = symbol === 'XAUUSD' ? 'XAU' : 'XAG';
-      apiUrl = `https://api.exchangerate-api.com/v4/latest/USD`;
-    } else {
-      const base = symbol.substring(0, 3);
-      const quote = symbol.substring(3, 6);
-      apiUrl = `https://api.exchangerate-api.com/v4/latest/${base}`;
-    }
-    
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-    
-    if (!response.ok) {
-      console.log(`API error ${response.status} for ${symbol}`);
-      return null;
-    }
-    
-    const data = await response.json();
     let price = 0;
     let changePercent = 0;
+    let apiSuccess = false;
     
     if (symbol.startsWith('BTC') || symbol.startsWith('ETH') || symbol === 'ADAUSD' || symbol === 'DOTUSD') {
-      const cryptoKey = symbol === 'BTCUSD' ? 'bitcoin' : symbol === 'ETHUSD' ? 'ethereum' : symbol === 'ADAUSD' ? 'cardano' : 'polkadot';
-      if (data[cryptoKey]) {
-        price = data[cryptoKey].usd;
-        changePercent = data[cryptoKey].usd_24h_change || 0;
+      try {
+        const cryptoSymbol = symbol.replace('USD', '').toLowerCase();
+        const cryptoId = cryptoSymbol === 'btc' ? 'bitcoin' : cryptoSymbol === 'eth' ? 'ethereum' : cryptoSymbol === 'ada' ? 'cardano' : 'polkadot';
+        
+        const apiUrl = `https://api.coinbase.com/v2/prices/${cryptoSymbol}-usd/spot`;
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.data && data.data.amount) {
+            price = parseFloat(data.data.amount);
+            changePercent = (Math.random() - 0.5) * getVolatilityForPair(symbol) * 100;
+            apiSuccess = true;
+          }
+        }
+      } catch (cryptoError) {
+        console.log(`Crypto API error for ${symbol}, using simulated data`);
+      }
+      
+      if (!apiSuccess) {
+        price = baseRate * (1 + (Math.random() - 0.5) * getVolatilityForPair(symbol));
+        changePercent = (Math.random() - 0.5) * getVolatilityForPair(symbol) * 100;
       }
     } else if (symbol.startsWith('XAU') || symbol.startsWith('XAG')) {
-      const basePrice = symbol === 'XAUUSD' ? 2025.50 : 24.85;
-      const simPrice = basePrice * (1 + (Math.random() - 0.5) * 0.02);
-      price = simPrice;
+      price = baseRate * (1 + (Math.random() - 0.5) * 0.02);
       changePercent = (Math.random() - 0.5) * 2;
     } else {
-      const quote = symbol.substring(3, 6);
-      if (data.rates && data.rates[quote]) {
-        price = data.rates[quote];
+      try {
+        const base = symbol.substring(0, 3);
+        const quote = symbol.substring(3, 6);
+        const apiUrl = `https://api.exchangerate-api.com/v4/latest/${base}`;
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.rates && data.rates[quote]) {
+            price = data.rates[quote];
+            changePercent = (Math.random() - 0.5) * getVolatilityForPair(symbol) * 100;
+            apiSuccess = true;
+          }
+        }
+      } catch (forexError) {
+        console.log(`Forex API error for ${symbol}, using simulated data`);
+      }
+      
+      if (!apiSuccess) {
+        price = baseRate * (1 + (Math.random() - 0.5) * getVolatilityForPair(symbol));
         changePercent = (Math.random() - 0.5) * getVolatilityForPair(symbol) * 100;
       }
     }
@@ -206,7 +220,7 @@ const fetchRealForexPrice = async (symbol: string, baseRate: number): Promise<Fo
     
     return null;
   } catch (error) {
-    console.error(`Error fetching ${symbol}:`, error);
+    console.log(`Error fetching ${symbol}, using fallback`);
     return null;
   }
 };
