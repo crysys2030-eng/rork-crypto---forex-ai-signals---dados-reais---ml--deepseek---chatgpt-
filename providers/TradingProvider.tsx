@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import createContextHook from '@nkzw/create-context-hook';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { generateText, generateObject } from '@rork/toolkit-sdk';
+import { generateText, generateObject } from '../packages/toolkit-sdk';
 import { z } from 'zod';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
