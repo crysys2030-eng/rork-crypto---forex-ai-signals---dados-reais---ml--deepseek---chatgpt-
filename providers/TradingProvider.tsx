@@ -29,6 +29,34 @@ export interface TradingSignal {
   status: 'ACTIVE' | 'CLOSED' | 'EXPIRED';
   marketSentiment?: string;
   technicalFactors?: string[];
+  timeframe?: '1MIN' | '5MIN' | '15MIN' | '1H' | '4H' | '1D';
+  strategy?: 'SCALPING' | 'DAY_TRADING' | 'SWING' | 'POSITION';
+}
+
+export interface ScalpingSignal {
+  id: string;
+  symbol: string;
+  type: 'BUY' | 'SELL';
+  entryPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  confidence: number;
+  timeframe: '5MIN';
+  strategy: 'SCALPING';
+  aiAnalysis: string;
+  multiAIScore: number;
+  indicators: {
+    stochastic: { k: number; d: number };
+    macd: { value: number; signal: number; histogram: number };
+    volume: { current: number; average: number; trend: 'INCREASING' | 'DECREASING' };
+    momentum: number;
+    spread: number;
+  };
+  quickEntry: boolean;
+  expectedDuration: number;
+  riskReward: number;
+  timestamp: number;
+  status: 'ACTIVE' | 'CLOSED' | 'EXPIRED';
 }
 
 export interface MarketAnalysis {
@@ -81,6 +109,7 @@ export interface MarketData {
   positions: TradingPosition[];
   analyses: MarketAnalysis[];
   chartAnalyses: ChartAnalysis[];
+  scalpingSignals: ScalpingSignal[];
   lastUpdate: number;
 }
 
@@ -373,6 +402,76 @@ const calculateATR = (highs: number[], lows: number[], closes: number[], period:
   return trs.slice(-period).reduce((sum, tr) => sum + tr, 0) / Math.min(period, trs.length);
 };
 
+const calculateStochastic = (prices: number[], period: number = 14): { k: number; d: number } => {
+  if (prices.length < period) return { k: 50, d: 50 };
+  
+  const slice = prices.slice(-period);
+  const currentPrice = prices[prices.length - 1];
+  const high = Math.max(...slice);
+  const low = Math.min(...slice);
+  
+  const k = high !== low ? ((currentPrice - low) / (high - low)) * 100 : 50;
+  
+  const kValues = [];
+  for (let i = prices.length - 3; i < prices.length; i++) {
+    const subSlice = prices.slice(Math.max(0, i - period + 1), i + 1);
+    const subHigh = Math.max(...subSlice);
+    const subLow = Math.min(...subSlice);
+    const subK = subHigh !== subLow ? ((prices[i] - subLow) / (subHigh - subLow)) * 100 : 50;
+    kValues.push(subK);
+  }
+  const d = kValues.reduce((sum, val) => sum + val, 0) / kValues.length;
+  
+  return { k, d };
+};
+
+const calculateMACD = (prices: number[]): { value: number; signal: number; histogram: number } => {
+  if (prices.length < 26) return { value: 0, signal: 0, histogram: 0 };
+  
+  const ema12 = calculateEMA(prices, 12);
+  const ema26 = calculateEMA(prices, 26);
+  const macdLine = ema12 - ema26;
+  
+  const macdValues = [];
+  for (let i = 26; i <= prices.length; i++) {
+    const slice = prices.slice(0, i);
+    const e12 = calculateEMA(slice, 12);
+    const e26 = calculateEMA(slice, 26);
+    macdValues.push(e12 - e26);
+  }
+  
+  const signalLine = calculateEMA(macdValues, 9);
+  const histogram = macdLine - signalLine;
+  
+  return { value: macdLine, signal: signalLine, histogram };
+};
+
+const calculateVolumeAnalysis = (prices: number[]): { current: number; average: number; trend: 'INCREASING' | 'DECREASING' } => {
+  if (prices.length < 10) return { current: 1, average: 1, trend: 'INCREASING' };
+  
+  const recentPriceChanges = [];
+  for (let i = 1; i < prices.length; i++) {
+    recentPriceChanges.push(Math.abs(prices[i] - prices[i - 1]));
+  }
+  
+  const current = recentPriceChanges[recentPriceChanges.length - 1] || 0;
+  const average = recentPriceChanges.reduce((sum, v) => sum + v, 0) / recentPriceChanges.length;
+  
+  const recentAvg = recentPriceChanges.slice(-5).reduce((sum, v) => sum + v, 0) / 5;
+  const olderAvg = recentPriceChanges.slice(-10, -5).reduce((sum, v) => sum + v, 0) / 5;
+  
+  const trend = recentAvg > olderAvg ? 'INCREASING' as const : 'DECREASING' as const;
+  
+  return { current, average, trend };
+};
+
+const calculateMomentum = (prices: number[], period: number = 10): number => {
+  if (prices.length < period + 1) return 0;
+  const current = prices[prices.length - 1];
+  const past = prices[prices.length - period - 1];
+  return ((current - past) / past) * 100;
+};
+
 const historicalCache: { [key: string]: { prices: number[]; timestamp: number } } = {};
 const HISTORICAL_CACHE_DURATION = 300000;
 
@@ -487,6 +586,202 @@ IMPORTANT: Return ALL required fields:
   }
 };
 
+const scalpingSignalSchema = z.object({
+  type: z.enum(['BUY', 'SELL']),
+  confidence: z.number().min(0).max(100),
+  quickEntry: z.boolean(),
+  stopLossMultiplier: z.number().min(0.5).max(2),
+  takeProfitMultiplier: z.number().min(1).max(3),
+  expectedDuration: z.number().min(5).max(30),
+  keyFactors: z.array(z.string()).min(3).max(5),
+  multiAIScore: z.number().min(0).max(100),
+});
+
+const generateScalpingSignalWithMultiAI = async (symbol: string): Promise<ScalpingSignal> => {
+  try {
+    console.log(`[Scalping AI] Gerando sinal de scalping 5min para ${symbol}...`);
+    
+    const historicalPrices = await fetchHistoricalData(symbol);
+    
+    let currentPrice = 0;
+    const realData = await fetchRealForexPrice(symbol, 0);
+    if (realData) {
+      currentPrice = (realData.bid + realData.ask) / 2;
+    } else if (historicalPrices.length > 0) {
+      currentPrice = historicalPrices[historicalPrices.length - 1];
+    } else {
+      const pairInfo = MAJOR_FOREX_PAIRS.find(p => p.symbol === symbol);
+      currentPrice = pairInfo?.baseRate || 1.0;
+    }
+    
+    const rsi = historicalPrices.length > 0 ? calculateRSI(historicalPrices, 14) : 50;
+    const stochastic = calculateStochastic(historicalPrices, 14);
+    const macd = calculateMACD(historicalPrices);
+    const volume = calculateVolumeAnalysis(historicalPrices);
+    const momentum = calculateMomentum(historicalPrices, 10);
+    const ema5 = calculateEMA(historicalPrices, 5);
+    const ema13 = calculateEMA(historicalPrices, 13);
+    const spread = getSpreadForPair(symbol) * getPipValue(symbol);
+    
+    const aiPrompts = [
+      {
+        name: 'Technical AI',
+        prompt: `Você é um sistema de IA especializado em análise técnica para scalping forex em timeframe de 5 minutos.
+
+Dados de ${symbol}:
+- Preço: ${currentPrice.toFixed(5)}
+- RSI(14): ${rsi.toFixed(2)} (sobrevendido<30, sobrecomprado>70)
+- Stochastic K: ${stochastic.k.toFixed(2)}, D: ${stochastic.d.toFixed(2)}
+- MACD: ${macd.value.toFixed(5)}, Signal: ${macd.signal.toFixed(5)}, Histograma: ${macd.histogram.toFixed(5)}
+- EMA5: ${ema5.toFixed(5)} vs EMA13: ${ema13.toFixed(5)}
+- Momentum: ${momentum.toFixed(2)}%
+- Volume trend: ${volume.trend}
+- Spread: ${spread.toFixed(5)}
+
+Para scalping 5min, retorne:
+- type: "BUY" ou "SELL" (MAIÚSCULO)
+- confidence: 0-100
+- quickEntry: true se entrada imediata recomendada
+- stopLossMultiplier: 0.5-2 (conservador para scalping)
+- takeProfitMultiplier: 1-3 (rápido para scalping)
+- expectedDuration: minutos esperados (5-30)
+- keyFactors: 3-5 fatores técnicos principais
+- multiAIScore: score de consenso 0-100`
+      },
+      {
+        name: 'Pattern Recognition AI',
+        prompt: `Você é uma IA especializada em reconhecimento de padrões de preço para scalping.
+
+Análise de micro-padrões de ${symbol}:
+- RSI: ${rsi.toFixed(2)}
+- Stochastic: K=${stochastic.k.toFixed(2)}, D=${stochastic.d.toFixed(2)}
+- MACD Histograma: ${macd.histogram.toFixed(5)}
+- Momentum: ${momentum.toFixed(2)}%
+- Volume: ${volume.trend}
+
+Identifique padrões de scalping e retorne estrutura completa com todos os campos obrigatórios.`
+      },
+      {
+        name: 'Momentum AI',
+        prompt: `Você é uma IA focada em análise de momentum para trades rápidos.
+
+${symbol} Momentum Analysis:
+- EMA5 vs EMA13: ${ema5 > ema13 ? 'Bullish' : 'Bearish'} crossover
+- MACD Momentum: ${macd.histogram > 0 ? 'Positivo' : 'Negativo'}
+- Momentum Score: ${momentum.toFixed(2)}%
+- Volume Trend: ${volume.trend}
+- Stochastic: ${stochastic.k > stochastic.d ? 'Ascending' : 'Descending'}
+
+Determine direção de momentum e retorne análise completa.`
+      }
+    ];
+    
+    console.log(`[Scalping AI] Consultando ${aiPrompts.length} sistemas de IA...`);
+    
+    const aiResults = await Promise.all(
+      aiPrompts.map(async ({ name, prompt }) => {
+        try {
+          const result = await generateObject({
+            messages: [{ role: 'user', content: prompt }],
+            schema: scalpingSignalSchema,
+          });
+          console.log(`[Scalping AI] ${name} resultado: ${result.type} (${result.confidence}%)`);
+          return result;
+        } catch (error) {
+          console.error(`[Scalping AI] Erro em ${name}:`, error);
+          return null;
+        }
+      })
+    );
+    
+    const validResults = aiResults.filter(r => r !== null) as z.infer<typeof scalpingSignalSchema>[];
+    
+    if (validResults.length === 0) {
+      throw new Error('Nenhuma IA retornou resultado válido');
+    }
+    
+    const buyCount = validResults.filter(r => r.type === 'BUY').length;
+    const sellCount = validResults.filter(r => r.type === 'SELL').length;
+    const finalType = buyCount >= sellCount ? 'BUY' : 'SELL';
+    
+    const avgConfidence = validResults.reduce((sum, r) => sum + r.confidence, 0) / validResults.length;
+    const avgMultiAIScore = validResults.reduce((sum, r) => sum + r.multiAIScore, 0) / validResults.length;
+    const avgStopLoss = validResults.reduce((sum, r) => sum + r.stopLossMultiplier, 0) / validResults.length;
+    const avgTakeProfit = validResults.reduce((sum, r) => sum + r.takeProfitMultiplier, 0) / validResults.length;
+    const avgDuration = validResults.reduce((sum, r) => sum + r.expectedDuration, 0) / validResults.length;
+    const quickEntry = validResults.filter(r => r.quickEntry).length > validResults.length / 2;
+    
+    const allFactors = validResults.flatMap(r => r.keyFactors);
+    const topFactors = [...new Set(allFactors)].slice(0, 5);
+    
+    const atr = historicalPrices.length > 14 ? calculateATR(
+      historicalPrices.map(p => p * 1.001),
+      historicalPrices.map(p => p * 0.999),
+      historicalPrices,
+      14
+    ) : currentPrice * 0.005;
+    
+    const stopLoss = finalType === 'BUY' ? 
+      currentPrice - (atr * avgStopLoss) : 
+      currentPrice + (atr * avgStopLoss);
+    
+    const takeProfit = finalType === 'BUY' ? 
+      currentPrice + (atr * avgTakeProfit) : 
+      currentPrice - (atr * avgTakeProfit);
+    
+    const analysisPrompt = `Como trader profissional de scalping, analise este consenso de múltiplas IAs para ${symbol}:
+
+- ${validResults.length} sistemas de IA concordam em: ${finalType}
+- Confiança média: ${avgConfidence.toFixed(1)}%
+- Score multi-IA: ${avgMultiAIScore.toFixed(1)}
+- Entrada rápida: ${quickEntry ? 'SIM' : 'NÃO'}
+- Duração esperada: ${avgDuration.toFixed(0)} minutos
+- RSI: ${rsi.toFixed(2)}
+- Stochastic: K=${stochastic.k.toFixed(2)}, D=${stochastic.d.toFixed(2)}
+- MACD: ${macd.histogram > 0 ? 'Positivo' : 'Negativo'}
+- Momentum: ${momentum.toFixed(2)}%
+- Volume: ${volume.trend}
+
+Forneça análise profissional concisa (max 100 palavras) em PT-PT focada em scalping.`;
+    
+    const aiAnalysis = await generateText(analysisPrompt);
+    
+    const riskReward = Math.abs(takeProfit - currentPrice) / Math.abs(stopLoss - currentPrice);
+    
+    console.log(`[Scalping AI] Sinal 5min gerado: ${finalType} com ${avgConfidence.toFixed(1)}% confiança`);
+    console.log(`[Scalping AI] Multi-IA Score: ${avgMultiAIScore.toFixed(1)} | R:R = 1:${riskReward.toFixed(2)}`);
+    
+    return {
+      id: `scalp-${Date.now()}`,
+      symbol,
+      type: finalType as 'BUY' | 'SELL',
+      entryPrice: parseFloat(currentPrice.toFixed(getPrecision(symbol))),
+      stopLoss: parseFloat(stopLoss.toFixed(getPrecision(symbol))),
+      takeProfit: parseFloat(takeProfit.toFixed(getPrecision(symbol))),
+      confidence: parseFloat(avgConfidence.toFixed(1)),
+      timeframe: '5MIN',
+      strategy: 'SCALPING',
+      aiAnalysis,
+      multiAIScore: parseFloat(avgMultiAIScore.toFixed(1)),
+      indicators: {
+        stochastic,
+        macd,
+        volume,
+        momentum,
+        spread,
+      },
+      quickEntry,
+      expectedDuration: Math.round(avgDuration),
+      riskReward: parseFloat(riskReward.toFixed(2)),
+      timestamp: Date.now(),
+      status: 'ACTIVE',
+    };
+  } catch (error) {
+    console.error('[Scalping AI] Erro ao gerar sinal de scalping:', error);
+    throw error;
+  }
+};
+
 const generateAISignal = async (symbol: string): Promise<TradingSignal> => {
   try {
     console.log(`[AI] Gerando sinal para ${symbol}...`);
@@ -574,6 +869,7 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
   const [positions, setPositions] = useState<TradingPosition[]>([]);
   const [analyses, setAnalyses] = useState<MarketAnalysis[]>([]);
   const [chartAnalyses, setChartAnalyses] = useState<ChartAnalysis[]>([]);
+  const [scalpingSignals, setScalpingSignals] = useState<ScalpingSignal[]>([]);
   const [forexApiKey, setForexApiKey] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
@@ -620,6 +916,18 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
     },
   });
 
+  const generateScalpingSignalMutation = useMutation({
+    mutationFn: generateScalpingSignalWithMultiAI,
+    onSuccess: (newSignal) => {
+      setScalpingSignals(prev => [...prev, newSignal]);
+      console.log('[Scalping] Novo sinal de scalping adicionado:', newSignal.id);
+    },
+    onError: (error) => {
+      setError(`Erro ao gerar sinal de scalping: ${error.message}`);
+      console.error('[Scalping] Erro:', error);
+    },
+  });
+
   const executeTradeMutation = useMutation({
     mutationFn: async ({ signal, volume }: { signal: TradingSignal; volume: number }) => {
       const newPosition: TradingPosition = {
@@ -652,8 +960,9 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
     positions,
     analyses,
     chartAnalyses,
+    scalpingSignals,
     lastUpdate: Date.now(),
-  }), [pairs, signals, positions, analyses, chartAnalyses]);
+  }), [pairs, signals, positions, analyses, chartAnalyses, scalpingSignals]);
 
   const refreshData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['forex-pairs'] });
@@ -665,6 +974,13 @@ export const [TradingProvider, useTrading] = createContextHook(() => {
     console.log(`[Trading] Iniciando geração de sinal para ${sanitizedSymbol}`);
     await generateSignalMutation.mutateAsync(sanitizedSymbol);
   }, [generateSignalMutation.mutateAsync]);
+
+  const generateScalpingSignal = useCallback(async (symbol: string) => {
+    if (!symbol?.trim() || symbol.length > 10) return;
+    const sanitizedSymbol = symbol.trim().toUpperCase();
+    console.log(`[Scalping] Iniciando geração de sinal de scalping 5min para ${sanitizedSymbol}`);
+    await generateScalpingSignalMutation.mutateAsync(sanitizedSymbol);
+  }, [generateScalpingSignalMutation.mutateAsync]);
 
   const generateMarketAnalysis = useCallback(async (symbol: string) => {
     try {
@@ -1003,12 +1319,13 @@ Dá insights sobre:
     setSelectedPair,
     refreshData,
     generateSignal,
+    generateScalpingSignal,
     generateMarketAnalysis,
     analyzeChartWithAI,
     executeTrade,
     forexApiKey,
     saveForexApiKey,
-    isLoading: pairsLoading || generateSignalMutation.isPending || executeTradeMutation.isPending,
+    isLoading: pairsLoading || generateSignalMutation.isPending || executeTradeMutation.isPending || generateScalpingSignalMutation.isPending,
     error,
-  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, generateMarketAnalysis, analyzeChartWithAI, executeTrade, forexApiKey, saveForexApiKey, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, error]);
+  }), [marketData, isConnected, selectedPair, setSelectedPair, refreshData, generateSignal, generateScalpingSignal, generateMarketAnalysis, analyzeChartWithAI, executeTrade, forexApiKey, saveForexApiKey, pairsLoading, generateSignalMutation.isPending, executeTradeMutation.isPending, generateScalpingSignalMutation.isPending, error]);
 });

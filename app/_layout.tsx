@@ -5,7 +5,7 @@ import { StyleSheet } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TradingProvider } from "@/providers/TradingProvider";
-import { TrendingUp, BarChart3, Bot, Settings, Activity } from "lucide-react-native";
+import { TrendingUp, BarChart3, Bot, Settings, Activity, Zap } from "lucide-react-native";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -50,6 +50,15 @@ function RootLayoutNav() {
           title: "Sinais AI",
           tabBarIcon: ({ color, size }) => (
             <Bot color={color} size={size} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="scalping"
+        options={{
+          title: "Scalping",
+          tabBarIcon: ({ color, size }) => (
+            <Zap color={color} size={size} />
           ),
         }}
       />
