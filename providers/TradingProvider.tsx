@@ -638,15 +638,27 @@ Dados de ${symbol}:
 - Volume trend: ${volume.trend}
 - Spread: ${spread.toFixed(5)}
 
-Para scalping 5min, retorne:
-- type: "BUY" ou "SELL" (MAIÚSCULO)
-- confidence: 0-100
-- quickEntry: true se entrada imediata recomendada
-- stopLossMultiplier: 0.5-2 (conservador para scalping)
-- takeProfitMultiplier: 1-3 (rápido para scalping)
-- expectedDuration: minutos esperados (5-30)
-- keyFactors: 3-5 fatores técnicos principais
-- multiAIScore: score de consenso 0-100`
+CRÍTICO - Para scalping 5min, retorne TODOS os campos obrigatórios:
+- type: "BUY" ou "SELL" (MAIÚSCULO, exatamente assim)
+- confidence: número entre 0-100
+- quickEntry: boolean (true ou false)
+- stopLossMultiplier: número entre 0.5-2 (MÍNIMO 0.5, conservador para scalping)
+- takeProfitMultiplier: número entre 1-3 (MÍNIMO 1.0, rápido para scalping)
+- expectedDuration: número entre 5-30 (MÍNIMO 5 minutos)
+- keyFactors: array com 3-5 strings de fatores técnicos
+- multiAIScore: número entre 0-100
+
+EXEMPLO:
+{
+  "type": "BUY",
+  "confidence": 75,
+  "quickEntry": true,
+  "stopLossMultiplier": 1.0,
+  "takeProfitMultiplier": 2.0,
+  "expectedDuration": 10,
+  "keyFactors": ["RSI oversold", "MACD bullish cross", "Strong volume"],
+  "multiAIScore": 80
+}`
       },
       {
         name: 'Pattern Recognition AI',
@@ -659,7 +671,15 @@ Análise de micro-padrões de ${symbol}:
 - Momentum: ${momentum.toFixed(2)}%
 - Volume: ${volume.trend}
 
-Identifique padrões de scalping e retorne estrutura completa com todos os campos obrigatórios.`
+IMPORTANTE - Retorne estrutura COMPLETA com TODOS os campos:
+- type: "BUY" ou "SELL" (MAIÚSCULO)
+- confidence: número 0-100
+- quickEntry: boolean
+- stopLossMultiplier: número 0.5-2 (NUNCA menor que 0.5)
+- takeProfitMultiplier: número 1-3 (NUNCA menor que 1.0)
+- expectedDuration: número 5-30 (NUNCA menor que 5)
+- keyFactors: array de 3-5 strings
+- multiAIScore: número 0-100`
       },
       {
         name: 'Momentum AI',
@@ -672,7 +692,15 @@ ${symbol} Momentum Analysis:
 - Volume Trend: ${volume.trend}
 - Stochastic: ${stochastic.k > stochastic.d ? 'Ascending' : 'Descending'}
 
-Determine direção de momentum e retorne análise completa.`
+REQUERIDO - Retorne objeto JSON completo:
+- type: "BUY" ou "SELL"
+- confidence: 0-100
+- quickEntry: true/false
+- stopLossMultiplier: 0.5-2 (mínimo 0.5)
+- takeProfitMultiplier: 1-3 (mínimo 1.0)
+- expectedDuration: 5-30 (mínimo 5 minutos)
+- keyFactors: ["fator1", "fator2", "fator3"]
+- multiAIScore: 0-100`
       }
     ];
     
